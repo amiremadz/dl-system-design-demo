@@ -64,6 +64,8 @@
 
 *Second: look at the DataLoader arguments. `num_workers=2` means two CPU processes pre-loading data in parallel while the GPU is running the forward pass. `pin_memory=True` pins the host memory for faster CPU-to-GPU transfers. `persistent_workers=True` avoids respawning those processes every epoch.*
 
+*On that last one — by default, PyTorch kills the worker processes at the end of each epoch and respawns them at the start of the next. That's process forking, library reimporting, dataset reinitialization — all over again, every epoch. `persistent_workers=True` keeps them alive and idle between epochs. They wake up when the next epoch starts, already warm. Over 100 epochs with even a moderately expensive dataset setup, that's minutes of wasted time eliminated for free.*
+
 *These look like minor details. In practice, misconfiguring these is the #1 cause of GPU underutilization I see on ML teams."*
 
 👆 **Run the benchmark cell**
@@ -99,6 +101,12 @@
 *Two: The `_init_weights` method. Kaiming initialization — named after Kaiming He, the same researcher who invented ResNets. Without proper initialization, deep networks can start with vanishing or exploding gradients before the first update even happens.*
 
 *And at the bottom: look at the memory estimate. About 23MB for FP32. With mixed precision, that drops to ~11MB. Before we even run a single training step, we already know our memory budget."*
+
+💡 **If asked what BN is — keep it tight:**
+
+🗣️ *"BatchNorm normalizes the activations within each layer across the batch — it forces the output of every layer to have roughly zero mean and unit variance. Why does that matter? Because as weights update during training, the distribution of activations feeding into the next layer keeps shifting. Later layers have to constantly adapt to a moving target, which slows training and makes you very sensitive to learning rate. BN stabilizes that distribution so each layer trains against a consistent input. The practical payoff: faster convergence, higher tolerance for large learning rates, and some built-in regularization from the per-batch noise in the statistics.*
+
+*This is also exactly why `drop_last=True` matters in the DataLoader — BN computes its statistics per batch. A final batch of 3 samples instead of 128 gives you completely unreliable statistics and can destabilize training, especially early on."*
 
 👆 **Show training config cell, then run the training loop**
 
