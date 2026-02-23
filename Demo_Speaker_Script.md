@@ -152,7 +152,7 @@
 
 👆 **Run the inference server cell**
 
-🗣️ *"Finally, the serving abstraction. In production you don't call a model directly — you go through an inference server. I've simplified it here, but this pattern is exactly how TorchServe, Triton, and BentoML work. The server handles batching, tracks latency SLAs, and exposes stats for monitoring.*
+🗣️ *"Finally, the serving abstraction. In production you don't call a model directly — you go through an inference server. I've simplified it here, but this pattern is exactly how TorchServe, Triton, and BentoML work. The server handles batching, tracks latency SLAs — Service Level Agreements, the formal commitments you make to users or downstream systems about response time and availability, for example 'P99 latency under 50ms, 99.9% uptime' — and exposes stats for monitoring.*
 
 *Now look at the three columns in the output — Latency, Acc, and Avg conf. Each one serves a different operational purpose."*
 
@@ -174,29 +174,73 @@
 
 👆 **Run the trade-off visualization cell**
 
-🗣️ *"This is my favorite chart to show in system design discussions.*
+🗣️ *"This is my favorite chart to show in system design discussions — because it forces people to stop thinking in one dimension.*
 
-*Each point is a model — different parameter count, different latency, different accuracy. The key insight: look at the Pareto frontier along the top-left edge. Those are the efficient models. Everything below and to the right is dominated — worse accuracy, higher latency.*
+*Each point is a real model family. The x-axis is inference latency at batch size 1 — that's your online serving cost. The y-axis is top-1 accuracy on ImageNet. The size of the point loosely reflects parameter count.*
 
-*Our TinyResNet, in red — it's not on the ImageNet frontier, but it was designed for a different task and constraint. This is how you think about model selection: you don't pick the highest accuracy model, you pick the model that's optimal for your specific accuracy, latency, and cost constraints."*
+*The key concept here is the **Pareto frontier** — the upper-left edge of the cloud. A model is on the Pareto frontier if no other model is strictly better on both axes simultaneously. MobileNetV2 is on the frontier: for its latency, nothing is more accurate. ViT-B/16 is also on the frontier: for its accuracy, nothing is faster. ResNet-50 sits in the middle — the workhorse that dominated production for years because it hit a sweet spot most teams could live with.*
+
+*Everything below and to the right of the frontier is dominated — you can find something faster, or something more accurate, at the same cost. Those models are rarely the right choice."*
+
+💡 **Point to our TinyResNet in red:**
+
+🗣️ *"Our model sits off the ImageNet frontier — and that's completely fine. It wasn't designed for ImageNet. It was designed for 32×32 CIFAR images with a tight memory budget. The lesson isn't that it's worse — it's that **every model should be evaluated on the Pareto frontier of its own task and constraint space.***
+
+*This is the conversation you want to have before writing a single line of code. What are my axes? What are my hard constraints? Which trade-offs am I actually willing to make?"*
+
+---
+
+👆 **Point to the Use Case table in the markdown**
+
+🗣️ *"Look at how differently the priority ordering shifts by use case:*
+
+*Autonomous driving — latency is non-negotiable. A 200ms delay at 60mph means your car has traveled 5 meters blind. No accuracy gain justifies that.*
+
+*Medical imaging — accuracy dominates. A missed tumor is catastrophic. A 2-second response time is completely acceptable if the radiologist is reviewing it anyway.*
+
+*Ads click-through prediction — cost and throughput drive everything. You're scoring billions of impressions per day. Even a 10% compute reduction at that scale translates to millions of dollars annually. And approximate is fine — the difference between 0.812 and 0.814 AUC is statistically invisible to the business.*
+
+*These aren't hypothetical. These are the real conversations that happen in system design reviews at Google, Meta, and Amazon. The model is 20% of the decision. The other 80% is understanding where you sit on these axes."*
+
+---
+
+👆 **Point to the Scaling Laws table in the markdown**
+
+🗣️ *"The other thing I want you to internalize before we close is the Scaling Laws table — because this is where a lot of engineering intuition breaks down.*
+
+*The instinct when a model isn't accurate enough is to throw more at it — more data, bigger model, more compute. And those things do help. But the returns are logarithmic, not linear. Look at the numbers:*
+
+*Doubling your training data buys you roughly 1–3% accuracy improvement. Not 50%. Not even 10%. 1–3%. That means if you're at 80% accuracy and you need to hit 85%, no amount of data alone gets you there — you need to rethink the architecture or the task framing.*
+
+*Doubling model size is similar — 1–2% gain. And now you've also doubled your inference cost, your memory footprint, and your serving bill. That trade-off needs to be conscious, not reflexive.*
+
+*The most underappreciated row is batch size. Doubling batch size does not give you a free 2x speedup. Larger batches have a generalization penalty — the gradient updates become smoother and the model tends to converge to sharper, less generalizable minima. The fix is to scale the learning rate proportionally — the linear scaling rule — but that introduces its own instability at very large scales. This is a whole area of active research, and it's why you can't just throw 8 GPUs at a problem and expect 8x faster convergence.*
+
+*The compute row is the one that changed how the entire industry thinks about training large models. The Chinchilla paper from DeepMind in 2022 showed that for a given compute budget, most labs had been massively overtraining large models on too little data. The optimal strategy — what they called compute-optimal training — is to scale model size and dataset size in roughly equal proportion. Concretely: if you double your compute, you should make the model about 1.4x larger AND train on about 1.4x more tokens, rather than just making the model bigger. GPT-3 at 175 billion parameters, for example, was significantly undertrained by this standard. Chinchilla at 70 billion parameters, trained on 4x more data, matched or beat it on most benchmarks at a fraction of the inference cost. This is why model size alone is no longer a reliable proxy for capability — training efficiency matters just as much."*
+
+*The practical takeaway: scaling is a tool of last resort, not first resort. Exhaust your pipeline optimizations, your augmentation strategy, your architecture choices first. Scale compute when those are maxed out — and even then, know exactly what you're buying."*
+
+💡 **Optional follow-up question for the audience:** *"If you had a fixed compute budget and had to choose between 2x more data or 2x more model parameters — which would you pick, and why does the answer depend on where you are in training?"* (Answer: early in training, more data wins because the model is underfitting; late in training when the model has saturated on the data, more capacity can help — but the real answer is always: measure both.)
+
+---
 
 👆 **Scroll to the Summary markdown cell**
 
-🗣️ *"Let me wrap with the five mental models I want you to leave with:*
+🗣️ *"Let me wrap with the five mental models I want you to leave with — and I mean these as actual decision rules, not just principles:*
 
-*One: Profile before you optimize. Never guess the bottleneck — measure it.*
+*One: **Profile before you optimize.** Never guess the bottleneck — measure it. We benchmarked the data pipeline before touching the model. We measured inference latency before quantizing. Every optimization we made was in response to data, not intuition.*
 
-*Two: Accuracy is necessary but not sufficient. Latency, memory, cost — they all have to work.*
+*Two: **Accuracy is necessary but not sufficient.** P99 latency, memory footprint, inference cost — they all have to work within their respective budgets. A 95% accurate model that misses its SLA is not deployable.*
 
-*Three: Start simple. A logistic regression baseline before any neural network.*
+*Three: **Start simple, measure, iterate.** A logistic regression baseline before any neural network. Not because it will win — it won't — but because it gives you a floor to beat, a debugging baseline, and a sanity check on your data pipeline. Teams that skip this step waste weeks chasing model bugs that were actually data bugs.*
 
-*Four: Mixed precision is free performance. Always on.*
+*Four: **Mixed precision is free performance.** One flag, zero architecture changes, roughly double throughput on modern GPUs. There is no reason to train in FP32 anymore.*
 
-*Five: Quantize before scaling. A small efficient model beats a large unoptimized one every time.*
+*Five: **Quantize before you scale.** The instinct when accuracy is insufficient is to reach for a bigger model. The better instinct is to first squeeze every bit of efficiency out of the current one — quantization, compilation, better data, better augmentation. Scaling compute is expensive and slow. Optimization is fast and often free.*
 
-*These are the principles that separate ML engineers who write notebooks from the ones who build systems that serve millions of users.*
+*The engineers who internalize these aren't just better at ML — they're better at shipping. And shipping is what actually matters."*
 
-*I'm happy to take questions — on any of the design decisions we made, or on how these principles apply to other domains."*
+🗣️ *"I'm happy to take questions — on any of the design decisions we made today, or on how these trade-offs play out in specific domains you're working in."*
 
 ---
 
