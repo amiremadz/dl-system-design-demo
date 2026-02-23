@@ -146,7 +146,19 @@
 
 🗣️ *"Finally, the serving abstraction. In production you don't call a model directly — you go through an inference server. I've simplified it here, but this pattern is exactly how TorchServe, Triton, and BentoML work. The server handles batching, tracks latency SLAs, and exposes stats for monitoring.*
 
-*The confidence score is important too — you use it to route uncertain predictions to a human review queue. That's how you build reliability into an ML system."*
+*Now look at the three columns in the output — Latency, Acc, and Avg conf. Each one serves a different operational purpose."*
+
+💡 **Point to each column as you explain it:**
+
+🗣️ *"**Latency** we've already discussed — that's your SLA metric. You set a P99 budget and you monitor against it.*
+
+***Acc — accuracy** — is your correctness signal on this specific batch. In a real server you wouldn't compute accuracy at runtime because you rarely have ground-truth labels on live traffic. But you would log predictions and run periodic offline evaluation against a labeled held-out set. If batch accuracy starts drifting down unexpectedly, that's your earliest warning of model drift or a data distribution shift upstream.*
+
+***Avg conf — average confidence** — is the one I'd argue is actually more actionable in production than accuracy. It's the mean of the softmax probability on the predicted class. A high-confidence wrong prediction is your most dangerous failure mode — the model is certain and it's wrong. A low-confidence correct prediction tells you the model is on the boundary and you should collect more data there.*
+
+*In practice, you set a confidence threshold — say 0.7. Predictions above it go straight through. Predictions below it get flagged for human review or routed to a fallback model. That's how you build a graceful degradation layer into an ML system, rather than a binary pass/fail."*
+
+💡 **This is a good moment to pause and ask the audience:** *"If your Avg conf drops from 0.85 to 0.65 in production overnight with no model change — what's your first hypothesis?"* (Answer: input distribution shift — the incoming data looks different from what the model was trained on.)
 
 ---
 
